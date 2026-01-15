@@ -51,7 +51,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
-      console.log('[TaskStore] Adding task:', task)
+      console.log('[TaskStore] Adding task for user:', user.id)
 
       // Optimistic: Add temporary task locally
       const tempId = `temp-${Date.now()}`
@@ -67,33 +67,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
       set(state => ({ tasks: [...state.tasks, tempTask] }))
 
-      // Self-healing: Ensure profile exists
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single()
-      
-      if (!profile) {
-        console.warn('[TaskStore] Profile missing for user, creating one...')
-        // Create profile manually if trigger failed
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: user.id,
-            username: user.email?.split('@')[0] || 'user',
-            full_name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
-            avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture
-          })
-        
-        if (profileError) {
-           console.error('[TaskStore] Failed to create fallback profile:', profileError)
-           throw new Error('User profile missing and could not be created.')
-        }
-      }
-
-      // Server request with timeout race
-      const insertPromise = supabase
+      // Direct INSERT - no profile check needed (DB has FK constraint that will fail if profile missing)
+      console.log('[TaskStore] Inserting task...')
+      const { data, error } = await supabase
         .from('tasks')
         .insert({
           user_id: user.id,
@@ -105,12 +81,6 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         })
         .select()
         .single()
-        
-      const timeoutPromise = new Promise<{ data: null, error: any }>((_, reject) => 
-        setTimeout(() => reject(new Error('Request timed out')), 10000)
-      )
-
-      const { data, error } = await Promise.race([insertPromise, timeoutPromise]) as any
 
       if (error) {
         console.error('[TaskStore] Insert error:', error)
@@ -119,7 +89,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           tasks: state.tasks.filter(t => t.id !== tempId),
           error: error.message
         }))
-        throw error
+        throw new Error(`${error.message}`)
       }
 
       console.log('[TaskStore] Task created:', data)

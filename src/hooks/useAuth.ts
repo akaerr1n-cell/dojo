@@ -11,15 +11,26 @@ export function useAuth() {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchProfile()
+    const initSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        setSession(session)
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          fetchProfile()
+        }
+      } catch (err) {
+        console.error('Auth load failed', err)
+      } finally {
+        setIsLoading(false)
       }
-      setIsLoading(false)
-    })
+    }
 
+    initSession()
+
+    // Safety timeout: Forced load after 5s if supabase hangs
+    const timeout = setTimeout(() => setIsLoading(false), 5000)
+    
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -34,7 +45,10 @@ export function useAuth() {
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [fetchProfile, clearProfile])
 
   const signUp = async (email: string, password: string, username: string) => {
