@@ -26,6 +26,12 @@ export function AddKataModal({ isOpen, onClose }: AddKataModalProps) {
     setError('')
     
     console.log('[AddKataModal] Submitting:', { title, priority, startTime, endTime })
+
+    if (new Date(startTime) >= new Date(endTime)) {
+      setError('End time must be after start time')
+      setIsSubmitting(false)
+      return
+    }
     
     try {
       await addTask({
